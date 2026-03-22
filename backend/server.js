@@ -25,10 +25,10 @@ import routineRouter from './routes/routine.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-let isConfigured = false;
+let isInitialized = false;
 
 async function configureApp() {
-  if (isConfigured) return app;
+  if (isInitialized) return app;
 
   const config = await loadConfig();
 
@@ -36,23 +36,13 @@ async function configureApp() {
   app.use(cors());
   app.use(express.json());
 
-  // Log requests in dev
-  if (config.isDev) {
-    app.use((req, res, next) => {
-      console.log(`${req.method} ${req.url}`);
-      next();
-    });
-  }
-
-  // Health
+  // Health - Important: Put before complex middlewares if possible
   app.get('/api/health', (req, res) => {
-    res.json({ ok: true, env: config.env, dataDir: path.join(__dirname, 'data') });
+    res.json({ ok: true, env: config.env, status: 'alive' });
   });
 
   // Routes
   app.use('/api/auth', authRouter);
-
-  // Protect all other api routes
   app.use('/api/todos', authMiddleware, todosRouter);
   app.use('/api/daily', authMiddleware, dailyRouter);
   app.use('/api/syllabus', authMiddleware, syllabusRouter);
@@ -63,7 +53,7 @@ async function configureApp() {
   app.use('/api/boards', authMiddleware, boardsRouter);
   app.use('/api/routine', authMiddleware, routineRouter);
 
-  // Documentation / Assets (Configurable via DB)
+  // Documentation / Assets
   app.get('/api/docs/roadmap', authMiddleware, async (req, res) => {
     try {
       const template = await RoleTemplate.findOne({ roleKey: req.user.role || 'upsc' });
@@ -73,30 +63,41 @@ async function configureApp() {
       stream.pipe(res);
     } catch (err) {
       console.error("Cloud Roadmap Load Error:", err.message);
-      res.status(404).json({ error: 'Roadmap reference not found in cloud storage' });
+      res.status(404).json({ error: 'Roadmap reference not found' });
     }
   });
 
   app.use(notFound);
   app.use(errorHandler);
 
-  await connectDB(config.mongoUri);
-  isConfigured = true;
+  try {
+    await connectDB(config.mongoUri);
+    isInitialized = true;
+  } catch (err) {
+    console.error("Critical Initialization Error:", err.message);
+    // Let it fail so the function can retry
+    throw err;
+  }
+
   return app;
 }
 
-// For Local Development
-if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+// Check if we should start the server (Render, Railway, Local)
+// Vercel sets the VERCEL environment variable.
+if (!process.env.VERCEL) {
   configureApp().then(() => {
     const port = process.env.PORT || 4000;
     app.listen(port, () => {
       console.log(`UPSC Tracker API: http://localhost:${port}`);
     });
+  }).catch(err => {
+    console.error("Failed to start server:", err);
+    process.exit(1);
   });
 }
 
-// Export for Vercel
+// Export for Vercel functions (Option B fallback)
 export default async (req, res) => {
-  const handler = await configureApp();
-  return handler(req, res);
+  await configureApp();
+  return app(req, res);
 };

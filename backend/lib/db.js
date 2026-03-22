@@ -152,15 +152,35 @@ const storeSchema = new mongoose.Schema({
 }, { timestamps: true });
 export const Store = mongoose.model('Store', storeSchema);
 
+let cachedConnection = null;
+
 export async function connectDB(uri) {
+  if (cachedConnection) {
+    return cachedConnection;
+  }
+
   try {
     const config = await loadConfig();
     const finalUri = uri || config.mongoUri;
-    await mongoose.connect(finalUri);
+    
+    // Disable strictQuery for Mongoose 7/8 compatibility if needed
+    mongoose.set('strictQuery', false);
+
+    const conn = await mongoose.connect(finalUri, {
+      // Use standard options for reliability
+      serverSelectionTimeoutMS: 5000,
+    });
+    
+    cachedConnection = conn;
     console.log('Connected to MongoDB');
+    return cachedConnection;
   } catch (error) {
     console.error('MongoDB connection error:', error.message);
-    process.exit(1);
+    // In serverless, we don't necessarily want to process.exit
+    if (!process.env.VERCEL) {
+      process.exit(1);
+    }
+    throw error;
   }
 }
 
