@@ -3,7 +3,6 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
-import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 import { loadConfig } from './config/index.js';
@@ -25,9 +24,13 @@ import routineRouter from './routes/routine.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-async function startServer() {
+const app = express();
+let isConfigured = false;
+
+async function configureApp() {
+  if (isConfigured) return app;
+
   const config = await loadConfig();
-  const app = express();
 
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors());
@@ -63,10 +66,8 @@ async function startServer() {
   // Documentation / Assets (Configurable via DB)
   app.get('/api/docs/roadmap', authMiddleware, async (req, res) => {
     try {
-      // Find the roadmap S3 key for this specific user role
       const template = await RoleTemplate.findOne({ roleKey: req.user.role || 'upsc' });
       const s3Key = template?.labels?.roadmapS3Key || 'public/product-manager.pdf';
-      
       const stream = await downloadFromS3(s3Key);
       res.setHeader('Content-Type', 'application/pdf');
       stream.pipe(res);
@@ -80,14 +81,22 @@ async function startServer() {
   app.use(errorHandler);
 
   await connectDB(config.mongoUri);
-  
-  app.listen(config.port, () => {
-    console.log(`UPSC Tracker API: http://localhost:${config.port} (${config.env})`);
-    console.log(`Data: ${path.join(__dirname, 'data')}`);
+  isConfigured = true;
+  return app;
+}
+
+// For Local Development
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  configureApp().then(() => {
+    const port = process.env.PORT || 4000;
+    app.listen(port, () => {
+      console.log(`UPSC Tracker API: http://localhost:${port}`);
+    });
   });
 }
 
-startServer().catch(err => {
-  console.error("Failed to start server:", err);
-  process.exit(1);
-});
+// Export for Vercel
+export default async (req, res) => {
+  const handler = await configureApp();
+  return handler(req, res);
+};
