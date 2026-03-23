@@ -5,13 +5,18 @@ import mongoose from 'mongoose';
 async function createPinki() {
   await connectDB();
   
-  const email = 'pinki@pinki.com';
-  const password = 'pinki';
+  // Use environment variables instead of hardcoded strings
+  const email = process.env.PINKI_EMAIL || 'pinki@example.com'; 
+  const password = process.env.PINKI_PASSWORD || 'changeme';
   
+  if (!process.env.PINKI_EMAIL || !process.env.PINKI_PASSWORD) {
+    console.warn('Warning: PINKI_EMAIL or PINKI_PASSWORD not set in environment. Using defaults.');
+  }
+
   try {
     let user = await User.findOne({ email });
     if (user) {
-      console.log('User Pinki already exists. Updating role to pm...');
+      console.log(`User ${email} already exists. Updating role to pm...`);
       user.role = 'pm';
       await user.save();
     } else {
@@ -21,7 +26,7 @@ async function createPinki() {
         name: 'Pinki',
         role: 'pm'
       });
-      console.log('User Pinki created successfully!');
+      console.log(`User ${email} created successfully!`);
     }
 
     // Add the roadmap link for her
@@ -36,8 +41,7 @@ async function createPinki() {
       console.log('Roadmap link added for Pinki.');
     }
 
-    console.log('Email:', email);
-    console.log('Password:', password);
+    console.log('Provisioning complete for:', email);
   } catch (err) {
     console.error('Error creating Pinki:', err.message);
   } finally {
