@@ -1,11 +1,16 @@
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 
-const secret_name = "arn:aws:secretsmanager:ap-south-1:051826731408:secret:genymede-admin-54jafY";
-const region = "ap-south-1";
+const secret_name = process.env.AWS_SECRETS_ARN;
+const region = process.env.AWS_REGION || "ap-south-1";
 
 const client = new SecretsManagerClient({ region });
 
 export async function getSecrets() {
+  // If we're on Vercel/Render and already have our main secrets, or if we don't have an ARN, skip this entirely
+  if ((process.env.MONGO_URI && process.env.JWT_SECRET) || !secret_name) {
+    return {};
+  }
+
   try {
     const response = await client.send(
       new GetSecretValueCommand({
@@ -18,11 +23,12 @@ export async function getSecrets() {
       return JSON.parse(response.SecretString);
     }
     
-    // Binary secrets are not supported in this helper
     throw new Error("Secret is not in string format");
   } catch (error) {
-    console.error("Error retrieving secrets from AWS Secrets Manager:", error.message);
-    // Return empty object or handle as needed
+    // Only log error in development to avoid noisy production logs if we don't need AWS
+    if (process.env.NODE_ENV !== 'production' && secret_name) {
+      console.error("Error retrieving secrets from AWS Secrets Manager:", error.message);
+    }
     return {};
   }
 }
